@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>车牌识别系统 - 技术文档</title>
+<style>
+:root {
+  --bg: #0f1117; --card: #1a1d27; --border: #2a2d3a;
+  --text: #e0e0e6; --dim: #8888a0; --accent: #4f9cf7;
+  --green: #34d399; --red: #f87171; --yellow: #fbbf24; --purple: #a78bfa;
+  --code-bg: #151822; --code-border: #252838;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.7; }
+a { color: var(--accent); text-decoration: none; }
+.container { max-width: 960px; margin: 0 auto; padding: 40px 24px; }
+h1 { font-size: 2.2em; font-weight: 700; margin-bottom: 8px; }
+h1 span { background: linear-gradient(135deg, var(--accent), var(--purple)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+h2 { font-size: 1.5em; margin: 48px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 1.15em; margin: 24px 0 8px; color: var(--accent); }
+p { margin: 10px 0; color: var(--dim); }
+.subtitle { font-size: 1.05em; color: var(--dim); margin-bottom: 40px; }
+.tag { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 0.8em; margin-right: 6px; }
+.tag-qt { background: #2d5a1e33; color: var(--green); border: 1px solid #2d5a1e; }
+.tag-cv { background: #1e3a5a33; color: var(--accent); border: 1px solid #1e3a5a; }
+.tag-onnx { background: #5a1e4a33; color: var(--purple); border: 1px solid #5a1e4a; }
+.tag-msvc { background: #5a4a1e33; color: var(--yellow); border: 1px solid #5a4a1e; }
+
+/* Pipeline */
+.pipeline { display: flex; gap: 0; margin: 32px 0; flex-wrap: wrap; justify-content: center; }
+.pipe-step { flex: 1; min-width: 140px; max-width: 180px; text-align: center; position: relative; padding: 16px 8px; }
+.pipe-step .icon { font-size: 2em; margin-bottom: 8px; }
+.pipe-step .name { font-weight: 600; font-size: 0.9em; }
+.pipe-step .desc { font-size: 0.75em; color: var(--dim); margin-top: 4px; }
+.pipe-arrow { display: flex; align-items: center; color: var(--accent); font-size: 1.4em; padding: 0 2px; }
+
+/* Code blocks */
+.code-block { background: var(--code-bg); border: 1px solid var(--code-border); border-radius: 8px; padding: 16px 20px; margin: 12px 0 20px; overflow-x: auto; font-family: 'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace; font-size: 0.85em; line-height: 1.6; }
+.code-block .kw { color: #c678dd; }
+.code-block .fn { color: #61afef; }
+.code-block .str { color: #98c379; }
+.code-block .num { color: #d19a66; }
+.code-block .cm { color: #5c6370; font-style: italic; }
+.code-block .tp { color: #e5c07b; }
+.code-block .op { color: #56b6c2; }
+.code-label { display: inline-block; background: var(--accent); color: #fff; font-size: 0.7em; padding: 1px 8px; border-radius: 4px; margin-bottom: 4px; font-family: sans-serif; }
+
+/* Cards */
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin: 16px 0; }
+.card-title { font-weight: 600; font-size: 1.05em; margin-bottom: 8px; }
+.card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 640px) { .card-grid { grid-template-columns: 1fr; } }
+
+/* Table */
+table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 0.9em; }
+th { background: var(--card); text-align: left; padding: 10px 12px; border: 1px solid var(--border); font-weight: 600; }
+td { padding: 8px 12px; border: 1px solid var(--border); color: var(--dim); }
+tr:hover td { background: var(--card); }
+
+/* File tree */
+.tree { font-family: monospace; font-size: 0.85em; line-height: 1.8; color: var(--dim); }
+.tree .dir { color: var(--accent); font-weight: 600; }
+.tree .new { color: var(--green); }
+.tree .mod { color: var(--yellow); }
+
+/* Nav */
+.nav { position: fixed; top: 0; left: 0; right: 0; background: rgba(15,17,23,0.92); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); z-index: 100; padding: 10px 24px; display: flex; gap: 20px; font-size: 0.85em; }
+.nav a { color: var(--dim); transition: color 0.2s; }
+.nav a:hover { color: var(--accent); }
+.nav .brand { font-weight: 700; color: var(--text); margin-right: auto; }
+.spacer { height: 48px; }
+
+/* Result demo */
+.result-demo { display: flex; gap: 20px; align-items: center; margin: 16px 0; flex-wrap: wrap; }
+.result-demo .plate { background: #1565C0; color: white; font-size: 1.6em; font-weight: 700; padding: 8px 20px; border-radius: 6px; letter-spacing: 3px; border: 3px solid #fff; font-family: monospace; }
+.result-demo .info { font-size: 0.85em; }
+.result-demo .conf { color: var(--green); font-weight: 600; }
+.result-demo .method { color: var(--purple); }
+
+.note { background: #1e3a5a22; border-left: 3px solid var(--accent); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 16px 0; font-size: 0.9em; }
+.note strong { color: var(--accent); }
+.warn { background: #5a4a1e22; border-left: 3px solid var(--yellow); }
+.warn strong { color: var(--yellow); }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <span class="brand">🚗 车牌识别系统</span>
+  <a href="#overview">概览</a>
+  <a href="#pipeline">流水线</a>
+  <a href="#detect">检测</a>
+  <a href="#recognize">识别</a>
+  <a href="#build">构建</a>
+  <a href="#files">文件</a>
+</nav>
+
+<div class="spacer"></div>
+<div class="container">
+
+<!-- ==================== 概览 ==================== -->
+<h1 id="overview"><span>车牌识别管理系统</span></h1>
+<p class="subtitle">基于 Qt6 + OpenCV + ONNX 深度学习的桌面端车牌自动识别系统</p>
+
+<div style="margin-bottom: 24px;">
+  <span class="tag tag-qt">Qt 6.11</span>
+  <span class="tag tag-cv">OpenCV 4.12</span>
+  <span class="tag tag-onnx">ONNX Runtime</span>
+  <span class="tag tag-msvc">MSVC 2022</span>
+</div>
+
+<div class="card-grid">
+  <div class="card">
+    <div class="card-title">🎯 核心能力</div>
+    <p>支持蓝底/黄底/新能源车牌识别，YOLO 深度学习检测 + ONNX OCR 文字识别，覆盖全国 31 个省份简称 + 字母 + 数字组合。</p>
+  </div>
+  <div class="card">
+    <div class="card-title">⚡ 技术栈</div>
+    <p>C++17 / Qt 6.11 (Widgets) / OpenCV 4.12 / ONNX 模型 (cv::dnn) / VS2022 + Qt VS Tools / qmake</p>
+  </div>
+  <div class="card">
+    <div class="card-title">📸 输入方式</div>
+    <p>本地图片文件 (JPG/PNG/BMP)、USB 摄像头实时采集、支持批量识别与历史记录管理。</p>
+  </div>
+  <div class="card">
+    <div class="card-title">📊 附加功能</div>
+    <p>识别记录持久化存储、历史搜索筛选、数据统计图表、CSV 导出。</p>
+  </div>
+</div>
+
+<!-- ==================== 流水线 ==================== -->
+<h2 id="pipeline">🔄 识别流水线</h2>
+<p>整个识别过程分为四个阶段，每个阶段独立解耦、通过信号槽串联：</p>
+
+<div class="pipeline">
+  <div class="pipe-step">
+    <div class="icon">📷</div>
+    <div class="name">图像输入</div>
+    <div class="desc">文件/摄像头</div>
+  </div>
+  <div class="pipe-arrow">→</div>
+  <div class="pipe-step">
+    <div class="icon">🔍</div>
+    <div class="name">车牌检测</div>
+    <div class="desc">YOLO + 形态学</div>
+  </div>
+  <div class="pipe-arrow">→</div>
+  <div class="pipe-step">
+    <div class="icon">🧠</div>
+    <div class="name">ONNX OCR</div>
+    <div class="desc">文字识别</div>
+  </div>
+  <div class="pipe-arrow">→</div>
+  <div class="pipe-step">
+    <div class="icon">✅</div>
+    <div class="name">结果验证</div>
+    <div class="desc">格式校验</div>
+  </div>
+</div>
+
+<div class="result-demo">
+  <div class="plate">苏APX4869</div>
+  <div class="info">
+    <div>置信度: <span class="conf">95.0%</span></div>
+    <div>检测方法: <span class="method">YOLO (score=0.848)</span></div>
+    <div>耗时: ~120ms (CPU)</div>
+  </div>
+</div>
+
+<!-- ==================== 检测 ==================== -->
+<h2 id="detect">🔍 阶段一：车牌检测 (PlateDetector)</h2>
+
+<h3>混合策略：YOLO 优先 + 形态学兜底</h3>
+
+<div class="note">
+<strong>为什么需要混合策略？</strong><br>
+YOLO 模型在全车照片上表现优异（精确定位车牌），但对裁剪后的车牌图片（没有车身上下文）会失效。形态学方案恰好相反——不依赖上下文但容易误检（如把 MINI 车标当成车牌）。两者互补。
+</div>
+
+<h3>策略 A：YOLO 深度学习检测</h3>
+<p>使用 OnnxOCR 的 <code>car_plate_detect.onnx</code> 模型，基于 YOLOv5 架构，输入 640×640 图片，输出 25200 个候选框（含 4 角关键点 + 车牌类型分类）。</p>
+
+<div class="code-label">PlateDetector.cpp — YOLO 预处理</div>
+<div class="code-block"><span class="cm">// Letterbox resize: 保持宽高比, 灰色(114)填充到 640x640</span>
+<span class="kw">void</span> PlateDetector::<span class="fn">letterbox</span>(<span class="kw">const</span> <span class="tp">cv::Mat</span> &img, <span class="tp">cv::Mat</span> &out,
+                               <span class="kw">double</span> &scale, <span class="kw">int</span> &padX, <span class="kw">int</span> &padY,
+                               <span class="kw">int</span> targetSize) {
+    <span class="kw">int</span> h = img.rows, w = img.cols;
+    scale = std::<span class="fn">min</span>((<span class="kw">double</span>)targetSize / h, (<span class="kw">double</span>)targetSize / w);
+    <span class="kw">int</span> newH = (<span class="kw">int</span>)(h * scale), newW = (<span class="kw">int</span>)(w * scale);
+
+    <span class="tp">cv::Mat</span> resized;
+    cv::<span class="fn">resize</span>(img, resized, cv::<span class="fn">Size</span>(newW, newH));
+
+    out = <span class="tp">cv::Mat</span>(targetSize, targetSize, CV_8UC3,
+                  cv::<span class="fn">Scalar</span>(<span class="num">114</span>, <span class="num">114</span>, <span class="num">114</span>));  <span class="cm">// 灰色填充</span>
+    padX = (targetSize - newW) / <span class="num">2</span>;
+    padY = (targetSize - newH) / <span class="num">2</span>;
+    resized.<span class="fn">copyTo</span>(out(cv::<span class="fn">Rect</span>(padX, padY, newW, newH)));
+}</div>
+
+<div class="code-label">PlateDetector.cpp — YOLO 输出解码</div>
+<div class="code-block"><span class="cm">// 模型输出: [1, 25200, 16]</span>
+<span class="cm">// 字段: [cx, cy, w, h, obj_conf,</span>
+<span class="cm">//        x1, y1, x2, y2, x3, y3, x4, y4,  (4角关键点)</span>
+<span class="cm">//        p_blue, p_yellow, p_green]         (车牌类型概率)</span>
+
+<span class="kw">for</span> (<span class="kw">int</span> i = <span class="num">0</span>; i < numDet; i++) {
+    <span class="kw">const float</span> *det = data + i * numFields;
+    <span class="kw">float</span> objConf = det[<span class="num">4</span>];
+    <span class="kw">if</span> (objConf < YOLO_CONF_THRESH) <span class="kw">continue</span>;
+
+    <span class="cm">// 类别概率 (位置13,14,15, 已sigmoid)</span>
+    <span class="kw">float</span> pBlue = det[<span class="num">13</span>], pYellow = det[<span class="num">14</span>], pGreen = det[<span class="num">15</span>];
+    <span class="kw">float</span> maxProb = std::<span class="fn">max</span>({pBlue, pYellow, pGreen});
+    <span class="kw">float</span> score = objConf * maxProb;
+
+    <span class="cm">// 坐标从640空间还原到原图</span>
+    <span class="kw">float</span> cx = (<span class="kw">float</span>)((det[<span class="num">0</span>] - padX) / scale);
+    <span class="kw">float</span> cy = (<span class="kw">float</span>)((det[<span class="num">1</span>] - padY) / scale);
+
+    <span class="cm">// 关键过滤: 宽高比 2.0~6.0</span>
+    <span class="kw">float</span> aspect = (<span class="kw">float</span>)bw / bh;
+    <span class="kw">if</span> (aspect < MIN_ASPECT || aspect > MAX_ASPECT) <span class="kw">continue</span>;
+}</div>
+
+<div class="note warn">
+<strong>宽高比过滤是关键！</strong><br>
+YOLO 有时会把整辆车检测为一个候选（如蓝色 Mini Cooper，bbox 宽高比 ≈ 1.07）。标准中国车牌是 440mm × 140mm，宽高比 ≈ 3.14。过滤条件 2.0~6.0 可以有效排除整车的误检。
+</div>
+
+<h3>策略 B：形态学检测（兜底）</h3>
+<p>当 YOLO 无法检测时（如纯车牌裁剪图），回退到传统图像处理方案：</p>
+
+<div class="code-block"><span class="cm">// 1. Sobel 边缘检测 (水平方向, 车牌字符有强垂直边缘)</span>
+cv::<span class="fn">Sobel</span>(gray, sobelX, CV_16S, <span class="num">1</span>, <span class="num">0</span>, <span class="num">3</span>);
+
+<span class="cm">// 2. 多尺度形态学闭运算 (合并字符区域)</span>
+cv::<span class="fn">morphologyEx</span>(binary, morph, cv::MORPH_CLOSE, kernel);
+
+<span class="cm">// 3. HSV 蓝色区域兜底检测</span>
+cv::<span class="fn">inRange</span>(hsv, cv::<span class="fn">Scalar</span>(<span class="num">95</span>,<span class="num">50</span>,<span class="num">40</span>),
+            cv::<span class="fn">Scalar</span>(<span class="num">130</span>,<span class="num">255</span>,<span class="num">255</span>), blueMask);
+
+<span class="cm">// 4. 候选验证打分: 蓝色比例 + 中心蓝色 + 边缘密度</span>
+<span class="kw">int</span> score = <span class="fn">verifyCandidate</span>(bgrRegion);
+<span class="kw">if</span> (score >= <span class="num">1</span>) results.<span class="fn">push_back</span>(region);</div>
+
+<!-- ==================== 识别 ==================== -->
+<h2 id="recognize">🧠 阶段二：ONNX 文字识别 (PlateOCR)</h2>
+
+<h3>模型规格</h3>
+<table>
+<tr><th>属性</th><th>值</th></tr>
+<tr><td>模型文件</td><td><code>plate_rec.onnx</code> (649 KB)</td></tr>
+<tr><td>输入</td><td>Float [1, 3, 48, 168] — RGB 归一化图像</td></tr>
+<tr><td>输出</td><td>Float [1, 21, 78] — 21 时间步 × 78 字符类别</td></tr>
+<tr><td>归一化</td><td><code>(pixel/255 - 0.588) / 0.193</code></td></tr>
+<tr><td>解码</td><td>CTC Greedy Decode</td></tr>
+<tr><td>字符集</td><td>31 省份 + 10 特殊 + 10 数字 + 24 字母 + 2 其他 = 78</td></tr>
+</table>
+
+<h3>预处理流程</h3>
+<div class="code-block"><span class="tp">cv::Mat</span> PlateOCR::<span class="fn">preprocess</span>(<span class="kw">const</span> <span class="tp">cv::Mat</span> &plateCrop) {
+    <span class="cm">// 1. 高质量缩放到模型输入尺寸</span>
+    <span class="tp">cv::Mat</span> resized;
+    cv::<span class="fn">resize</span>(plateCrop, resized,
+              cv::<span class="fn">Size</span>(<span class="num">168</span>, <span class="num">48</span>), <span class="num">0</span>, <span class="num">0</span>, cv::INTER_CUBIC);
+
+    <span class="cm">// 2. BGR → RGB (模型训练时用 RGB)</span>
+    <span class="tp">cv::Mat</span> rgb;
+    cv::<span class="fn">cvtColor</span>(resized, rgb, cv::COLOR_BGR2RGB);
+
+    <span class="cm">// 3. 归一化: (x/255 - mean) / std</span>
+    <span class="tp">cv::Mat</span> floatImg;
+    rgb.<span class="fn">convertTo</span>(floatImg, CV_32FC3, <span class="num">1.0</span> / <span class="num">255.0</span>);
+    floatImg = (floatImg - <span class="num">0.588f</span>) / <span class="num">0.193f</span>;
+
+    <span class="cm">// 4. HWC → CHW blob: [1, 3, 48, 168]</span>
+    <span class="kw">return</span> cv::dnn::<span class="fn">blobFromImage</span>(floatImg);
+}</div>
+
+<h3>CTC 贪心解码</h3>
+<p>模型输出 21 个时间步，每步 78 个字符的 logit。CTC 解码规则：</p>
+<div class="code-block"><span class="cm">// 对每个时间步取 argmax</span>
+<span class="kw">int</span> maxIdx = <span class="num">0</span>;
+<span class="kw">for</span> (<span class="kw">int</span> c = <span class="num">1</span>; c < numClasses; c++)
+    <span class="kw">if</span> (timestep[c] > timestep[maxIdx]) maxIdx = c;
+
+<span class="cm">// 跳过 blank (index 0) 和连续重复</span>
+<span class="kw">if</span> (maxIdx != <span class="num">0</span> && maxIdx != prevIdx) {
+    <span class="kw">float</span> prob = <span class="num">1.0f</span> / (<span class="num">1.0f</span> + std::<span class="fn">exp</span>(-timestep[maxIdx]));
+    indices.<span class="fn">push_back</span>(maxIdx);
+    probs.<span class="fn">push_back</span>(prob);
+}
+prevIdx = maxIdx;
+
+<span class="cm">// 映射索引到字符: QString charStr = QString::fromUtf8(PLATE_CHARS);</span>
+<span class="cm">// 例: index 10 → '苏', index 52 → 'A', index 42 → '0'</span></div>
+
+<div class="note">
+<strong>CTC 解码直觉理解：</strong><br>
+想象模型像打字一样，从左到右逐个"看"车牌图片。每个时间步它"打"一个字符（或空白）。如果它连续"打"了两个相同的字符（比如看到'8'很宽，占了两个时间步），CTC 会把它们合并成一个。空白符（index 0）表示"这里没有字符"，直接跳过。
+</div>
+
+<h3>OCR 验证回退机制</h3>
+<p>PlateRecognizer 会遍历所有检测候选，逐一做 OCR 并验证结果合法性：</p>
+
+<div class="code-block"><span class="cm">// 验证规则: 标准蓝牌 7 字符, 新能源牌 8 字符</span>
+<span class="kw">static bool</span> <span class="fn">isValidPlate</span>(<span class="kw">const</span> <span class="tp">QString</span> &plate) {
+    <span class="kw">if</span> (plate.<span class="fn">length</span>() < <span class="num">7</span> || plate.<span class="fn">length</span>() > <span class="num">8</span>) <span class="kw">return false</span>;
+
+    <span class="cm">// 首字符必须是省份简称</span>
+    <span class="kw">if</span> (!provinces.<span class="fn">contains</span>(plate[<span class="num">0</span>])) <span class="kw">return false</span>;
+
+    <span class="cm">// 第二位必须是字母 A-Z</span>
+    <span class="kw">if</span> (plate[<span class="num">1</span>] < <span class="str">'A'</span> || plate[<span class="num">1</span>] > <span class="str">'Z'</span>) <span class="kw">return false</span>;
+
+    <span class="kw">return true</span>;
+}
+
+<span class="cm">// 逐候选遍历, 找第一个通过验证的</span>
+<span class="kw">for</span> (<span class="kw">int</span> rank = <span class="num">0</span>; rank < sortedIdx.<span class="fn">size</span>(); rank++) {
+    <span class="tp">QString</span> plate = m_ocr.<span class="fn">recognize</span>(candidate.plateImage, conf);
+    <span class="kw">if</span> (conf >= <span class="num">0.85</span> && <span class="fn">isValidPlate</span>(plate)) {
+        foundValid = <span class="kw">true</span>;
+        <span class="kw">break</span>;  <span class="cm">// 找到合法结果, 停止搜索</span>
+    }
+}</div>
+
+<!-- ==================== 构建 ==================== -->
+<h2 id="build">🔨 构建指南</h2>
+
+<h3>环境要求</h3>
+<table>
+<tr><th>依赖</th><th>版本</th><th>路径</th></tr>
+<tr><td>Visual Studio 2022</td><td>v145 工具集</td><td>系统安装</td></tr>
+<tr><td>Qt</td><td>6.11.1 (MSVC 2022 64-bit)</td><td><code>H:\Qt6_10\6.11.1\msvc2022_64\</code></td></tr>
+<tr><td>OpenCV</td><td>4.12.0</td><td><code>D:\opencv4\opencv\build\</code></td></tr>
+<tr><td>Qt VS Tools</td><td>最新版</td><td>VS 扩展安装</td></tr>
+</table>
+
+<h3>构建步骤</h3>
+<div class="code-block"><span class="cm"># 方式一: VS2022 + Qt VS Tools (推荐)</span>
+<span class="cm"># 直接打开 PlateRecognition.vcxproj, Ctrl+B 编译</span>
+
+<span class="cm"># 方式二: qmake + MSVC</span>
+<span class="cm"># 打开 x64 Native Tools Command Prompt</span>
+cd D:\Arctic_QT\PlateRecognition
+qmake PlateRecognition.pro
+nmake
+
+<span class="cm"># Post-build 自动执行:</span>
+<span class="cm"># 1. 拷贝 OpenCV DLL 到 bin/</span>
+<span class="cm"># 2. 拷贝 ONNX 模型到 bin/models/</span>
+<span class="cm"># 3. windeployqt 部署 Qt DLL</span></div>
+
+<h3>模型文件</h3>
+<table>
+<tr><th>文件</th><th>用途</th><th>大小</th><th>来源</th></tr>
+<tr><td><code>plate_rec.onnx</code></td><td>车牌文字识别</td><td>649 KB</td><td>OnnxOCR (ModelScope)</td></tr>
+<tr><td><code>car_plate_detect.onnx</code></td><td>YOLO 车牌检测</td><td>5.3 MB</td><td>OnnxOCR (ModelScope)</td></tr>
+</table>
+
+<div class="note">
+<strong>模型下载：</strong><br>
+如果模型文件缺失，可从 ModelScope 下载：<br>
+<code>https://modelscope.cn/models/supersong/onnxocr_model</code><br>
+将 <code>models/license_plate/</code> 下的两个 .onnx 文件放入项目的 <code>models/</code> 目录。
+</div>
+
+<!-- ==================== 文件结构 ==================== -->
+<h2 id="files">📁 项目结构</h2>
+
+<div class="tree">
+<span class="dir">PlateRecognition/</span><br>
+├── <span class="dir">src/</span><br>
+│   ├── main.cpp<br>
+│   ├── <span class="dir">core/</span> <span class="cm">← 核心算法</span><br>
+│   │   ├── <span class="mod">PlateDetector.h/.cpp</span> <span class="cm">← YOLO + 形态学混合检测</span><br>
+│   │   ├── <span class="new">PlateOCR.h/.cpp</span> <span class="cm">← ONNX 文字识别 + CTC 解码</span><br>
+│   │   └── <span class="mod">PlateRecognizer.h/.cpp</span> <span class="cm">← 流水线主控 + 验证回退</span><br>
+│   ├── <span class="dir">ui/</span> <span class="cm">← 界面</span><br>
+│   │   ├── MainWindow.h/.cpp <span class="cm">← 主窗口</span><br>
+│   │   ├── RecognitionWidget.h/.cpp <span class="cm">← 识别页</span><br>
+│   │   ├── HistoryWidget.h/.cpp <span class="cm">← 历史记录</span><br>
+│   │   ├── StatisticsWidget.h/.cpp <span class="cm">← 统计图表</span><br>
+│   │   └── CameraWidget.h/.cpp <span class="cm">← 摄像头</span><br>
+│   ├── <span class="dir">data/</span><br>
+│   │   ├── Record.h <span class="cm">← 数据模型</span><br>
+│   │   └── RecordManager.h/.cpp <span class="cm">← JSON 持久化</span><br>
+│   └── <span class="dir">utils/</span><br>
+│       ├── CsvExporter.h/.cpp <span class="cm">← CSV 导出</span><br>
+│       └── ImageConverter.h/.cpp <span class="cm">← 格式转换</span><br>
+├── <span class="dir">models/</span> <span class="cm">← ONNX 模型</span><br>
+│   ├── plate_rec.onnx<br>
+│   └── car_plate_detect.onnx<br>
+├── <span class="dir">samples/</span> <span class="cm">← 测试图片</span><br>
+├── <span class="dir">resources/</span><br>
+│   └── resources.qrc<br>
+├── PlateRecognition.pro <span class="cm">← qmake 配置</span><br>
+├── PlateRecognition.vcxproj <span class="cm">← VS 项目</span><br>
+└── docs/<br>
+    └── DOCUMENTATION.html <span class="cm">← 本文档</span>
+</div>
+
+<!-- ==================== 架构 ==================== -->
+<h2>🏗️ 架构设计</h2>
+
+<div class="card">
+<div class="card-title">三层架构</div>
+<div class="code-block"><span class="cm">┌─────────────────────────────────────────┐</span>
+<span class="cm">│  UI 层 (Qt Widgets)</span>
+<span class="cm">│  MainWindow → RecognitionWidget</span>
+<span class="cm">│              → HistoryWidget</span>
+<span class="cm">│              → StatisticsWidget</span>
+<span class="cm">│              → CameraWidget</span>
+<span class="cm">├─────────────────────────────────────────┤</span>
+<span class="cm">│  核心层 (Core)</span>
+<span class="cm">│  PlateRecognizer (流水线调度)</span>
+<span class="cm">│    ├─ PlateDetector  (YOLO + 形态学)</span>
+<span class="cm">│    └─ PlateOCR       (ONNX + CTC解码)</span>
+<span class="cm">├─────────────────────────────────────────┤</span>
+<span class="cm">│  数据层 (Data)</span>
+<span class="cm">│  RecordManager (JSON 持久化)</span>
+<span class="cm">│  CsvExporter   (CSV 导出)</span>
+<span class="cm">└─────────────────────────────────────────┘</span></div>
+</div>
+
+<div class="card-grid">
+  <div class="card">
+    <div class="card-title">信号槽通信</div>
+    <p>核心层通过 Qt 信号通知 UI 进度：<br>
+    <code>recognitionStarted()</code> → <code>progressChanged(%)</code> → <code>recognitionFinished(result)</code><br>
+    支持跨线程 QueuedConnection。</p>
+  </div>
+  <div class="card">
+    <div class="card-title">线程安全</div>
+    <p><code>RecognitionResult</code> 通过 <code>Q_DECLARE_METATYPE</code> 注册，可在信号槽中跨线程传递。识别任务在后台线程执行，UI 不阻塞。</p>
+  </div>
+</div>
+
+<!-- ==================== 已知限制 ==================== -->
+<h2>⚠️ 已知限制</h2>
+
+<div class="card">
+<table>
+<tr><th>场景</th><th>表现</th><th>原因</th></tr>
+<tr><td>蓝底车牌 + 蓝色车身</td><td>YOLO 正确检测 ✅</td><td>YOLO 区分车身和车牌</td></tr>
+<tr><td>纯车牌裁剪图 (无车身)</td><td>YOLO 失效, 形态学兜底</td><td>YOLO 需要车身上下文</td></tr>
+<tr><td>形近字混淆 (鲁/闽)</td><td>偶尔误识别</td><td>模型训练数据有限</td></tr>
+<tr><td>夜间/低光照</td><td>识别率下降</td><td>预处理未做光照补偿</td></tr>
+<tr><td>倾斜车牌 (>30°)</td><td>检测可能失败</td><td>YOLO 关键点可用于透视矫正, 尚未实现</td></tr>
+</table>
+</div>
+
+<div class="note">
+<strong>改进方向：</strong><br>
+1. 利用 YOLO 的 4 角关键点做透视变换矫正<br>
+2. 增加 CLAHE/直方图均衡化预处理应对低光照<br>
+3. 收集更多训练数据微调 OCR 模型<br>
+4. 添加新能源绿牌专项优化
+</div>
+
+</div>
+</body>
+</html>

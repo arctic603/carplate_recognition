@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/">
+        <!-- 占位：如有图标文件，在此添加 <file>icons/app.png</file> 等条目 -->
+    </qresource>
+</RCC>

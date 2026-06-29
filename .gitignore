@@ -1,0 +1,72 @@
+# ============================================================
+# 车牌识别管理系统 - .gitignore
+# ============================================================
+
+# Build outputs
+bin/
+obj/
+debug/
+release/
+moc/
+rcc/
+out/
+
+# Visual Studio
+.vs/
+*.vcxproj.user
+*.sln
+*.suo
+*.vsidx
+CMakeCache.txt
+CMakeFiles/
+CMakeSettings.json
+
+# Compiled binaries
+*.dll
+*.exe
+*.pdb
+*.ilk
+*.obj
+*.lib
+*.exp
+
+# Qt generated
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+moc_predefs.h
+moc_predefs.h.cbt
+qtvars.*
+qt.natvis
+*_work.log
+
+# OpenCV build artifacts
+*.manifest
+
+# Model files (too large for GitHub free tier)
+# plate_rec.onnx is only 649KB, keep it
+# car_plate_detect.onnx is 5.3MB, still OK for GitHub (<100MB limit)
+
+# Firecrawl cache
+.firecrawl/
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# IDE config
+*.swp
+*.swo
+*~
+.idea/
+*.code-workspace
+
+# Python scripts in tools/ (keep)
+# Python temp files
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs
+*.log
