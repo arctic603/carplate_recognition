@@ -38,10 +38,10 @@ void MainWindow::setupUI()
     // --- 创建核心业务对象 ---
     m_recognizer = new PlateRecognizer(this);
 
-    // 记录文件存储在 AppDataLocation/records.json
+    // 记录文件存储在 AppDataLocation/records.db
     QString dataPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     QDir().mkpath(dataPath);
-    QString recordsPath = dataPath + "/records.json";
+    QString recordsPath = dataPath + "/records.db";
     m_recordManager = new RecordManager(recordsPath, this);
 
     // --- 创建三个功能 Tab 页 ---

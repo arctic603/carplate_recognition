@@ -3,7 +3,7 @@
 # Qt 6.11.1 (MSVC 2022 64-bit) + OpenCV 4.12.0
 # ============================================================
 
-QT += widgets multimedia multimediawidgets concurrent
+QT += widgets multimedia multimediawidgets concurrent sql
 CONFIG += c++17
 
 TARGET = PlateRecognition

@@ -1,91 +1,255 @@
 #include "data/RecordManager.h"
-#include <QFile>
-#include <QSaveFile>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QJsonArray>
+#include <QSqlQuery>
+#include <QSqlError>
 #include <QDir>
+#include <QFileInfo>
+#include <QUuid>
+#include <QDebug>
+#include <QVariant>
 
-RecordManager::RecordManager(const QString &filePath, QObject *parent)
-    : QObject(parent)
-    , m_filePath(filePath)
-{
-    loadFromFile();
+// ============================================================
+// Record::generateId
+// ============================================================
+QString Record::generateId() {
+    return QUuid::createUuid().toString(QUuid::WithoutBraces);
 }
 
+// ============================================================
+// Constructor / Destructor
+// ============================================================
+RecordManager::RecordManager(const QString &dbPath, QObject *parent)
+    : QObject(parent), m_dbPath(dbPath)
+{
+    if (openDatabase()) {
+        createTable();
+        qDebug() << "RecordManager: SQLite database opened:" << dbPath;
+    } else {
+        qCritical() << "RecordManager: failed to open database:" << dbPath;
+    }
+}
+
+RecordManager::~RecordManager()
+{
+    if (m_db.isOpen()) {
+        m_db.close();
+    }
+}
+
+// ============================================================
+// Database initialization
+// ============================================================
+bool RecordManager::openDatabase()
+{
+    // Ensure directory exists
+    QDir dir = QFileInfo(m_dbPath).absoluteDir();
+    if (!dir.exists()) {
+        dir.mkpath(".");
+    }
+
+    // Use unique connection name to avoid conflicts
+    QString connName = "recordmanager_" + QString::number((quintptr)this);
+    m_db = QSqlDatabase::addDatabase("QSQLITE", connName);
+    m_db.setDatabaseName(m_dbPath);
+
+    if (!m_db.open()) {
+        qWarning() << "SQLite open error:" << m_db.lastError().text();
+        return false;
+    }
+
+    // Enable WAL mode for better concurrent read performance
+    QSqlQuery pragma(m_db);
+    pragma.exec("PRAGMA journal_mode=WAL");
+    pragma.exec("PRAGMA foreign_keys=ON");
+
+    return true;
+}
+
+void RecordManager::createTable()
+{
+    QSqlQuery q(m_db);
+    bool ok = q.exec(
+        "CREATE TABLE IF NOT EXISTS records ("
+        "  id         TEXT PRIMARY KEY,"
+        "  plate      TEXT NOT NULL,"
+        "  confidence REAL NOT NULL DEFAULT 0.0,"
+        "  image_path TEXT,"
+        "  timestamp  TEXT NOT NULL,"
+        "  source     TEXT,"
+        "  province   TEXT"
+        ")"
+    );
+    if (!ok) {
+        qWarning() << "CREATE TABLE failed:" << q.lastError().text();
+        return;
+    }
+
+    // Indexes for common queries
+    q.exec("CREATE INDEX IF NOT EXISTS idx_records_plate ON records(plate)");
+    q.exec("CREATE INDEX IF NOT EXISTS idx_records_province ON records(province)");
+    q.exec("CREATE INDEX IF NOT EXISTS idx_records_timestamp ON records(timestamp)");
+}
+
+// ============================================================
+// CRUD
+// ============================================================
 void RecordManager::addRecord(const Record &record)
 {
-    m_records.prepend(record);
-    saveToFile();
+    QSqlQuery q(m_db);
+    q.prepare(
+        "INSERT INTO records (id, plate, confidence, image_path, timestamp, source, province) "
+        "VALUES (:id, :plate, :conf, :img, :ts, :src, :prov)"
+    );
+    q.bindValue(":id", record.id);
+    q.bindValue(":plate", record.plateNumber);
+    q.bindValue(":conf", record.confidence);
+    q.bindValue(":img", record.imagePath);
+    q.bindValue(":ts", record.timestamp.toString(Qt::ISODate));
+    q.bindValue(":src", record.source);
+    q.bindValue(":prov", record.province);
+
+    if (!q.exec()) {
+        qWarning() << "INSERT failed:" << q.lastError().text();
+        return;
+    }
+
     emit recordAdded(record);
 }
 
 void RecordManager::deleteRecord(const QString &id)
 {
-    m_records.erase(
-        std::remove_if(m_records.begin(), m_records.end(),
-                        [&id](const Record &r) { return r.id == id; }),
-        m_records.end());
-    saveToFile();
+    QSqlQuery q(m_db);
+    q.prepare("DELETE FROM records WHERE id = :id");
+    q.bindValue(":id", id);
+
+    if (!q.exec()) {
+        qWarning() << "DELETE failed:" << q.lastError().text();
+        return;
+    }
+
     emit recordsChanged();
 }
 
 QList<Record> RecordManager::getAllRecords() const
 {
-    return m_records;
+    QList<Record> list;
+    QSqlQuery q(m_db);
+    q.exec("SELECT id, plate, confidence, image_path, timestamp, source, province "
+           "FROM records ORDER BY timestamp DESC");
+
+    while (q.next()) {
+        Record r;
+        r.id           = q.value(0).toString();
+        r.plateNumber  = q.value(1).toString();
+        r.confidence   = q.value(2).toDouble();
+        r.imagePath    = q.value(3).toString();
+        r.timestamp    = QDateTime::fromString(q.value(4).toString(), Qt::ISODate);
+        r.source       = q.value(5).toString();
+        r.province     = q.value(6).toString();
+        list.append(r);
+    }
+    return list;
 }
 
 void RecordManager::clearAll()
 {
-    m_records.clear();
-    saveToFile();
+    QSqlQuery q(m_db);
+    q.exec("DELETE FROM records");
     emit recordsChanged();
 }
 
-// ---- \u641c\u7d22\u4e0e\u8fc7\u6ee4 ----
-
+// ============================================================
+// Search & Filter
+// ============================================================
 QList<Record> RecordManager::searchByPlate(const QString &keyword) const
 {
-    QList<Record> result;
-    for (const auto &r : m_records) {
-        if (r.plateNumber.contains(keyword, Qt::CaseInsensitive)) {
-            result.append(r);
-        }
+    QList<Record> list;
+    QSqlQuery q(m_db);
+    q.prepare(
+        "SELECT id, plate, confidence, image_path, timestamp, source, province "
+        "FROM records WHERE plate LIKE :kw ORDER BY timestamp DESC"
+    );
+    q.bindValue(":kw", "%" + keyword + "%");
+    q.exec();
+
+    while (q.next()) {
+        Record r;
+        r.id           = q.value(0).toString();
+        r.plateNumber  = q.value(1).toString();
+        r.confidence   = q.value(2).toDouble();
+        r.imagePath    = q.value(3).toString();
+        r.timestamp    = QDateTime::fromString(q.value(4).toString(), Qt::ISODate);
+        r.source       = q.value(5).toString();
+        r.province     = q.value(6).toString();
+        list.append(r);
     }
-    return result;
+    return list;
 }
 
 QList<Record> RecordManager::filterByDateRange(const QDateTime &from, const QDateTime &to) const
 {
-    QList<Record> result;
-    for (const auto &r : m_records) {
-        if (r.timestamp >= from && r.timestamp <= to) {
-            result.append(r);
-        }
+    QList<Record> list;
+    QSqlQuery q(m_db);
+    q.prepare(
+        "SELECT id, plate, confidence, image_path, timestamp, source, province "
+        "FROM records WHERE timestamp >= :from AND timestamp <= :to "
+        "ORDER BY timestamp DESC"
+    );
+    q.bindValue(":from", from.toString(Qt::ISODate));
+    q.bindValue(":to", to.toString(Qt::ISODate));
+    q.exec();
+
+    while (q.next()) {
+        Record r;
+        r.id           = q.value(0).toString();
+        r.plateNumber  = q.value(1).toString();
+        r.confidence   = q.value(2).toDouble();
+        r.imagePath    = q.value(3).toString();
+        r.timestamp    = QDateTime::fromString(q.value(4).toString(), Qt::ISODate);
+        r.source       = q.value(5).toString();
+        r.province     = q.value(6).toString();
+        list.append(r);
     }
-    return result;
+    return list;
 }
 
 QList<Record> RecordManager::filterByProvince(const QString &province) const
 {
-    QList<Record> result;
-    for (const auto &r : m_records) {
-        if (r.province == province) {
-            result.append(r);
-        }
+    QList<Record> list;
+    QSqlQuery q(m_db);
+    q.prepare(
+        "SELECT id, plate, confidence, image_path, timestamp, source, province "
+        "FROM records WHERE province = :prov ORDER BY timestamp DESC"
+    );
+    q.bindValue(":prov", province);
+    q.exec();
+
+    while (q.next()) {
+        Record r;
+        r.id           = q.value(0).toString();
+        r.plateNumber  = q.value(1).toString();
+        r.confidence   = q.value(2).toDouble();
+        r.imagePath    = q.value(3).toString();
+        r.timestamp    = QDateTime::fromString(q.value(4).toString(), Qt::ISODate);
+        r.source       = q.value(5).toString();
+        r.province     = q.value(6).toString();
+        list.append(r);
     }
-    return result;
+    return list;
 }
 
-// ---- \u7edf\u8ba1 ----
-
+// ============================================================
+// Statistics (SQL aggregation)
+// ============================================================
 QMap<QString, int> RecordManager::countByProvince() const
 {
     QMap<QString, int> map;
-    for (const auto &r : m_records) {
-        if (!r.province.isEmpty()) {
-            map[r.province]++;
-        }
+    QSqlQuery q(m_db);
+    q.exec("SELECT province, COUNT(*) FROM records "
+           "WHERE province IS NOT NULL AND province != '' "
+           "GROUP BY province ORDER BY COUNT(*) DESC");
+
+    while (q.next()) {
+        map[q.value(0).toString()] = q.value(1).toInt();
     }
     return map;
 }
@@ -93,17 +257,30 @@ QMap<QString, int> RecordManager::countByProvince() const
 QMap<QDate, int> RecordManager::countByDate(const QDate &from, const QDate &to) const
 {
     QMap<QDate, int> map;
-    // \u521d\u59cb\u5316\u65e5\u671f\u8303\u56f4\u5185\u6240\u6709\u65e5\u671f\u4e3a 0
+
+    // Initialize all dates in range to 0
     QDate d = from;
     while (d <= to) {
         map[d] = 0;
         d = d.addDays(1);
     }
-    // \u7edf\u8ba1\u6bcf\u65e5\u8bc6\u522b\u6570\u91cf
-    for (const auto &r : m_records) {
-        QDate date = r.timestamp.date();
-        if (date >= from && date <= to) {
-            map[date]++;
+
+    // SQL aggregation using date substring
+    QSqlQuery q(m_db);
+    q.prepare(
+        "SELECT SUBSTR(timestamp, 1, 10) AS date_str, COUNT(*) "
+        "FROM records "
+        "WHERE timestamp >= :from AND timestamp <= :to "
+        "GROUP BY date_str"
+    );
+    q.bindValue(":from", QDateTime(from, QTime(0, 0)).toString(Qt::ISODate));
+    q.bindValue(":to", QDateTime(to, QTime(23, 59, 59)).toString(Qt::ISODate));
+    q.exec();
+
+    while (q.next()) {
+        QDate date = QDate::fromString(q.value(0).toString(), "yyyy-MM-dd");
+        if (date.isValid()) {
+            map[date] = q.value(1).toInt();
         }
     }
     return map;
@@ -111,78 +288,20 @@ QMap<QDate, int> RecordManager::countByDate(const QDate &from, const QDate &to) 
 
 int RecordManager::totalCount() const
 {
-    return m_records.size();
+    QSqlQuery q(m_db);
+    q.exec("SELECT COUNT(*) FROM records");
+    if (q.next()) {
+        return q.value(0).toInt();
+    }
+    return 0;
 }
 
 double RecordManager::averageConfidence() const
 {
-    if (m_records.isEmpty()) {
-        return 0.0;
+    QSqlQuery q(m_db);
+    q.exec("SELECT AVG(confidence) FROM records");
+    if (q.next()) {
+        return q.value(0).toDouble();
     }
-    double sum = 0.0;
-    for (const auto &r : m_records) {
-        sum += r.confidence;
-    }
-    return sum / m_records.size();
-}
-
-// ---- \u79c1\u6709\u65b9\u6cd5 ----
-
-void RecordManager::loadFromFile()
-{
-    QFile file(m_filePath);
-    if (!file.exists()) {
-        // \u6587\u4ef6\u4e0d\u5b58\u5728\u65f6\u8fd4\u56de\u7a7a\u5217\u8868
-        return;
-    }
-
-    if (!file.open(QIODevice::ReadOnly)) {
-        return;
-    }
-
-    QByteArray data = file.readAll();
-    file.close();
-
-    QJsonParseError error;
-    QJsonDocument doc = QJsonDocument::fromJson(data, &error);
-    if (error.error != QJsonParseError::NoError || !doc.isObject()) {
-        return;
-    }
-
-    QJsonObject root = doc.object();
-    QJsonArray arr = root["records"].toArray();
-
-    m_records.clear();
-    m_records.reserve(arr.size());
-    for (const auto &val : arr) {
-        m_records.append(Record::fromJson(val.toObject()));
-    }
-}
-
-void RecordManager::saveToFile() const
-{
-    // \u786e\u4fdd\u76ee\u5f55\u5b58\u5728
-    QDir dir = QFileInfo(m_filePath).absoluteDir();
-    if (!dir.exists()) {
-        dir.mkpath(".");
-    }
-
-    // \u6784\u5efa JSON \u6570\u636e
-    QJsonArray arr;
-    for (const auto &r : m_records) {
-        arr.append(r.toJson());
-    }
-
-    QJsonObject root;
-    root["version"] = "1.0";
-    root["records"] = arr;
-
-    // \u4f7f\u7528 QSaveFile \u539f\u5b50\u5199\u5165\uff0c\u907f\u514d\u5199\u5165\u4e2d\u65ad\u5bfc\u81f4\u6570\u636e\u635f\u574f
-    QSaveFile saveFile(m_filePath);
-    if (!saveFile.open(QIODevice::WriteOnly)) {
-        return;
-    }
-
-    saveFile.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
-    saveFile.commit();
+    return 0.0;
 }
